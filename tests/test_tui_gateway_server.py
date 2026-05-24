@@ -783,6 +783,63 @@ def _session(agent=None, **extra):
     }
 
 
+def test_reload_mcp_refreshes_live_tui_agent_tools(monkeypatch):
+    calls = []
+    fake_mcp = types.ModuleType("tools.mcp_tool")
+    setattr(fake_mcp, "shutdown_mcp_servers", lambda: calls.append("shutdown"))
+    setattr(fake_mcp, "discover_mcp_tools", lambda: calls.append("discover"))
+    monkeypatch.setitem(sys.modules, "tools.mcp_tool", fake_mcp)
+    monkeypatch.setattr(server, "_emit", lambda *args, **kwargs: calls.append(("emit", args)))
+    monkeypatch.setattr(
+        server,
+        "_refresh_agent_tool_list",
+        lambda agent: calls.append(("refresh", agent)) or 1,
+    )
+
+    agent = types.SimpleNamespace(tools=[], valid_tool_names=set())
+    server._sessions["sid"] = _session(agent=agent)
+    try:
+        resp = server.handle_request(
+            {
+                "id": "1",
+                "method": "reload.mcp",
+                "params": {"session_id": "sid", "confirm": True},
+            }
+        )
+    finally:
+        server._sessions.pop("sid", None)
+        monkeypatch.delitem(sys.modules, "tools.mcp_tool", raising=False)
+
+    assert resp["result"]["status"] == "reloaded"
+    assert calls[:2] == ["shutdown", "discover"]
+    assert ("refresh", agent) in calls
+
+
+def test_mcp_enable_slash_mirrors_reload_to_live_tui_agent(monkeypatch):
+    calls = []
+    fake_mcp = types.ModuleType("tools.mcp_tool")
+    setattr(fake_mcp, "shutdown_mcp_servers", lambda: calls.append("shutdown"))
+    setattr(fake_mcp, "discover_mcp_tools", lambda: calls.append("discover"))
+    monkeypatch.setitem(sys.modules, "tools.mcp_tool", fake_mcp)
+    monkeypatch.setattr(server, "_emit", lambda *args, **kwargs: calls.append(("emit", args)))
+    monkeypatch.setattr(
+        server,
+        "_refresh_agent_tool_list",
+        lambda agent: calls.append(("refresh", agent)) or 1,
+    )
+
+    agent = types.SimpleNamespace(tools=[], valid_tool_names=set())
+    session = _session(agent=agent)
+    try:
+        warning = server._mirror_slash_side_effects("sid", session, "/mcp enable delta")
+    finally:
+        monkeypatch.delitem(sys.modules, "tools.mcp_tool", raising=False)
+
+    assert warning == ""
+    assert calls[:2] == ["shutdown", "discover"]
+    assert ("refresh", agent) in calls
+
+
 def test_session_close_commits_memory_and_fires_finalize_hook(monkeypatch):
     calls = {"hooks": []}
 

@@ -110,13 +110,13 @@ export function McpPicker({ gw, onClose, sessionId, sys, t }: McpPickerProps) {
       return
     }
 
-    if (key.upArrow && sel > 0) {
+    if ((key.upArrow || ch === 'k') && sel > 0) {
       setSel(s => s - 1)
 
       return
     }
 
-    if (key.downArrow && sel < rows.length - 1) {
+    if ((key.downArrow || ch === 'j') && sel < rows.length - 1) {
       setSel(s => s + 1)
 
       return

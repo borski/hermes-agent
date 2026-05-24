@@ -4423,6 +4423,23 @@ def _(rid, params: dict) -> dict:
         return _err(rid, 5010, str(e))
 
 
+def _refresh_agent_tool_list(agent) -> int:
+    """Refresh an agent's OpenAI tool schemas from the live registry."""
+    from model_tools import get_tool_definitions
+
+    enabled_toolsets = getattr(agent, "enabled_toolsets", None)
+    disabled_toolsets = getattr(agent, "disabled_toolsets", None)
+    agent.tools = get_tool_definitions(
+        enabled_toolsets=enabled_toolsets,  # type: ignore[arg-type]
+        disabled_toolsets=disabled_toolsets,  # type: ignore[arg-type]
+        quiet_mode=True,
+    )
+    agent.valid_tool_names = {
+        tool["function"]["name"] for tool in agent.tools
+    } if agent.tools else set()
+    return len(agent.tools or [])
+
+
 @method("reload.mcp")
 def _(rid, params: dict) -> dict:
     session = _sessions.get(params.get("session_id", ""))
@@ -4471,8 +4488,7 @@ def _(rid, params: dict) -> dict:
         discover_mcp_tools()
         if session:
             agent = session["agent"]
-            if hasattr(agent, "refresh_tools"):
-                agent.refresh_tools()
+            _refresh_agent_tool_list(agent)
             _emit("session.info", params.get("session_id", ""), _session_info(agent))
 
         # Honor `always=true` by persisting the opt-out to config.
@@ -5656,7 +5672,7 @@ def _(rid, params: dict) -> dict:
     so the session's tool schema matches the new config immediately.
     """
     try:
-        from hermes_cli.mcp_config import _set_mcp_server_enabled
+        from hermes_cli.mcp_config import set_mcp_servers_enabled
 
         enable_names = list(params.get("enable") or [])
         disable_names = list(params.get("disable") or [])
@@ -5665,12 +5681,12 @@ def _(rid, params: dict) -> dict:
         unchanged: list[str] = []
 
         if enable_names:
-            ch, un, mi = _set_mcp_server_enabled(enable_names, True)
+            ch, un, mi = set_mcp_servers_enabled(enable_names, True)
             changed.extend(ch)
             unchanged.extend(un)
             missing.extend(mi)
         if disable_names:
-            ch, un, mi = _set_mcp_server_enabled(disable_names, False)
+            ch, un, mi = set_mcp_servers_enabled(disable_names, False)
             changed.extend(ch)
             unchanged.extend(un)
             missing.extend(mi)
@@ -5684,11 +5700,8 @@ def _(rid, params: dict) -> dict:
             session = _sessions.get(params.get("session_id", ""))
             if session:
                 agent = session.get("agent")
-                if agent is not None and hasattr(agent, "refresh_tools"):
-                    try:
-                        agent.refresh_tools()
-                    except Exception:
-                        pass
+                if agent is not None:
+                    _refresh_agent_tool_list(agent)
                 _emit(
                     "session.info",
                     params.get("session_id", ""),
@@ -5755,8 +5768,22 @@ def _mirror_slash_side_effects(sid: str, session: dict, command: str) -> str:
             elif mode in {"normal", "off"}:
                 agent.service_tier = None
             _emit("session.info", sid, _session_info(agent))
-        elif name == "reload-mcp" and agent and hasattr(agent, "reload_mcp_tools"):
-            agent.reload_mcp_tools()
+        elif name == "reload-mcp" and agent:
+            from tools.mcp_tool import shutdown_mcp_servers, discover_mcp_tools
+
+            shutdown_mcp_servers()
+            discover_mcp_tools()
+            _refresh_agent_tool_list(agent)
+            _emit("session.info", sid, _session_info(agent))
+        elif name == "mcp" and agent:
+            subcommand = arg.split(maxsplit=1)[0].lower() if arg else ""
+            if subcommand in {"enable", "disable"}:
+                from tools.mcp_tool import shutdown_mcp_servers, discover_mcp_tools
+
+                shutdown_mcp_servers()
+                discover_mcp_tools()
+                _refresh_agent_tool_list(agent)
+                _emit("session.info", sid, _session_info(agent))
         elif name == "stop":
             from tools.process_registry import process_registry
 

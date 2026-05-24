@@ -75,16 +75,24 @@ def test_mcp_apply_applies_enable_then_disable_then_reloads_session(monkeypatch)
     refresh_called = {"count": 0}
 
     class _Agent:
-        def refresh_tools(self):
-            refresh_called["count"] += 1
+        enabled_toolsets = None
+        disabled_toolsets = None
+        tools: list = []
+        valid_tool_names: set = set()
 
+    agent = _Agent()
     sid = "sess-tui"
-    monkeypatch.setitem(server._sessions, sid, {"agent": _Agent()})
+    monkeypatch.setitem(server._sessions, sid, {"agent": agent})
+
+    def _fake_refresh(a):
+        refresh_called["count"] += 1
+        return 0
 
     try:
-        with patch("hermes_cli.mcp_config._set_mcp_server_enabled", side_effect=fake_set), \
+        with patch("hermes_cli.mcp_config.set_mcp_servers_enabled", side_effect=fake_set), \
              patch("tools.mcp_tool.shutdown_mcp_servers") as shutdown_mock, \
              patch("tools.mcp_tool.discover_mcp_tools") as discover_mock, \
+             patch("tui_gateway.server._refresh_agent_tool_list", side_effect=_fake_refresh), \
              patch("tui_gateway.server._emit"), \
              patch("tui_gateway.server._session_info", return_value={}):
             resp = server._methods["mcp.apply"](
@@ -109,7 +117,7 @@ def test_mcp_apply_applies_enable_then_disable_then_reloads_session(monkeypatch)
 
 
 def test_mcp_apply_no_changes_does_not_reload():
-    with patch("hermes_cli.mcp_config._set_mcp_server_enabled", return_value=([], ["alpha"], [])), \
+    with patch("hermes_cli.mcp_config.set_mcp_servers_enabled", return_value=([], ["alpha"], [])), \
          patch("tools.mcp_tool.shutdown_mcp_servers") as shutdown_mock, \
          patch("tools.mcp_tool.discover_mcp_tools") as discover_mock:
         resp = server._methods["mcp.apply"](
@@ -125,7 +133,7 @@ def test_mcp_apply_no_changes_does_not_reload():
 
 
 def test_mcp_apply_reports_missing_servers():
-    with patch("hermes_cli.mcp_config._set_mcp_server_enabled", return_value=([], [], ["ghost"])):
+    with patch("hermes_cli.mcp_config.set_mcp_servers_enabled", return_value=([], [], ["ghost"])):
         resp = server._methods["mcp.apply"](
             9,
             {"enable": ["ghost"], "disable": [], "session_id": ""},
