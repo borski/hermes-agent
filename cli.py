@@ -1823,6 +1823,50 @@ def _replay_output_history() -> None:
         _OUTPUT_HISTORY_REPLAYING = False
 
 
+# Curses-exclusive TTY lock — when set, _cprint defers writes from any thread
+# until the curses session exits.  Used by /mcp picker and other curses UIs
+# to prevent background output from tearing down the screen mid-render.
+import contextlib as _contextlib_for_tty
+import threading as _threading_for_tty
+
+_TTY_EXCLUSIVE = _threading_for_tty.Event()
+_TTY_EXCLUSIVE_LOCK = _threading_for_tty.Lock()
+_TTY_EXCLUSIVE_BUFFER: list[str] = []
+
+
+@_contextlib_for_tty.contextmanager
+def _tty_exclusive():
+    """Acquire exclusive TTY ownership for a curses session.
+
+    Background threads calling ``_cprint`` while this context is active
+    will buffer their output instead of forcing prompt_toolkit to redraw,
+    which would tear curses off the screen.  Buffered lines are replayed
+    in order on exit.
+    """
+    _TTY_EXCLUSIVE.set()
+    # Pause the kawaii spinner — it writes \r-based frames directly to its
+    # captured sys.stdout and bypasses _cprint entirely, so the buffer hook
+    # alone can't stop it from leaking glyphs into curses cells.
+    prev_pause = os.environ.get("HERMES_SPINNER_PAUSE")
+    os.environ["HERMES_SPINNER_PAUSE"] = "1"
+    try:
+        yield
+    finally:
+        if prev_pause is None:
+            os.environ.pop("HERMES_SPINNER_PAUSE", None)
+        else:
+            os.environ["HERMES_SPINNER_PAUSE"] = prev_pause
+        _TTY_EXCLUSIVE.clear()
+        with _TTY_EXCLUSIVE_LOCK:
+            pending = list(_TTY_EXCLUSIVE_BUFFER)
+            _TTY_EXCLUSIVE_BUFFER.clear()
+        for line in pending:
+            try:
+                _cprint(line)
+            except Exception:
+                pass
+
+
 def _cprint(text: str):
     """Print ANSI-colored text through prompt_toolkit's native renderer.
 
@@ -1838,8 +1882,20 @@ def _cprint(text: str):
     prompt.  Route those cases through ``run_in_terminal`` via
     ``loop.call_soon_threadsafe``, which pauses the input area, prints
     the line above it, and redraws the prompt cleanly.
+
+    Curses-exclusive mode: when a curses picker (e.g. /mcp picker) owns
+    the TTY, background thread writes via ``run_in_terminal`` would tear
+    the curses screen down to print their line.  ``_TTY_EXCLUSIVE_LOCK``
+    + ``_TTY_EXCLUSIVE_BUFFER`` defer those writes until the picker exits
+    so the curses session stays stable.
     """
     _record_output_history(text)
+
+    # Curses picker has exclusive TTY — defer instead of redrawing.
+    if _TTY_EXCLUSIVE.is_set():
+        with _TTY_EXCLUSIVE_LOCK:
+            _TTY_EXCLUSIVE_BUFFER.append(text)
+        return
 
     try:
         from prompt_toolkit.application import get_app_or_none, run_in_terminal
@@ -9739,9 +9795,17 @@ class HermesCLI:
         action = parts[1].lower() if len(parts) > 1 else "picker"
 
         if action in {"list", "ls"}:
+            import contextlib
+            import io as _io
+
             from hermes_cli.mcp_config import cmd_mcp_list
 
-            cmd_mcp_list()
+            buf = _io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                cmd_mcp_list()
+            captured = buf.getvalue()
+            if captured:
+                _cprint(captured.rstrip("\n"))
             print("  Usage: /mcp [picker]")
             print("         /mcp enable <name> [name ...]")
             print("         /mcp disable <name> [name ...]")
@@ -9755,10 +9819,30 @@ class HermesCLI:
 
         if action in {"picker", "manage"}:
             before = copy.deepcopy((load_config().get("mcp_servers") or {}))
-            with self._busy_command(self._slow_command_status(cmd_original)):
-                from hermes_cli.mcp_picker import run_picker
+            import threading
 
-                run_picker()
+            from hermes_cli.mcp_picker import run_picker
+
+            # Don't wrap run_picker in self._busy_command — the busy spinner
+            # writes to the same TTY that curses owns, so its frames bleed
+            # into picker cells as random glyphs (counters, dots, colons).
+            # The picker is interactive; the user doesn't need a spinner.
+            in_main_thread = threading.current_thread() is threading.main_thread()
+            if self._app and in_main_thread:
+                from prompt_toolkit.application import run_in_terminal
+
+                was_visible = self._status_bar_visible
+                self._status_bar_visible = False
+                self._app.invalidate()
+                try:
+                    with _tty_exclusive():
+                        run_in_terminal(run_picker)
+                finally:
+                    self._status_bar_visible = was_visible
+                    self._app.invalidate()
+            else:
+                with _tty_exclusive():
+                    run_picker()
             after = load_config().get("mcp_servers") or {}
             if after != before:
                 print("  Reloading MCP servers for this session...")
