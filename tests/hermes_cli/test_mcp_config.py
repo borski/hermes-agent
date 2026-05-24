@@ -60,7 +60,7 @@ def _seed_config(tmp_path: Path, mcp_servers: dict):
 
     config = {"mcp_servers": mcp_servers, "_config_version": 9}
     config_path = tmp_path / "config.yaml"
-    with open(config_path, "w") as f:
+    with open(config_path, "w", encoding="utf-8") as f:
         yaml.safe_dump(config, f)
 
 
@@ -525,6 +525,44 @@ class TestConfigHelpers:
 
         assert _env_key_for_server("ink") == "MCP_INK_API_KEY"
         assert _env_key_for_server("my-server") == "MCP_MY_SERVER_API_KEY"
+
+
+class TestMcpEnableDisable:
+    def test_enable_multiple_servers(self, tmp_path, capsys):
+        _seed_config(tmp_path, {
+            "alpha": {"url": "https://example.com/mcp", "enabled": False},
+            "gamma": {"url": "https://example.com/mcp", "enabled": True},
+        })
+        from hermes_cli.config import load_config
+        from hermes_cli.mcp_config import cmd_mcp_enable
+
+        cmd_mcp_enable(_make_args(names=["alpha", "gamma", "ghost"]))
+
+        out = capsys.readouterr().out
+        assert "Enabled 'alpha'" in out
+        assert "already enabled" in out
+        assert "Server 'ghost' not found" in out
+        servers = load_config()["mcp_servers"]
+        assert servers["alpha"]["enabled"] is True
+        assert servers["gamma"]["enabled"] is True
+
+    def test_disable_multiple_servers(self, tmp_path, capsys):
+        _seed_config(tmp_path, {
+            "beta": {"url": "https://example.com/mcp", "enabled": True},
+            "delta": {"url": "https://example.com/mcp", "enabled": False},
+        })
+        from hermes_cli.config import load_config
+        from hermes_cli.mcp_config import cmd_mcp_disable
+
+        cmd_mcp_disable(_make_args(names=["beta", "delta", "ghost"]))
+
+        out = capsys.readouterr().out
+        assert "Disabled 'beta'" in out
+        assert "already disabled" in out
+        assert "Server 'ghost' not found" in out
+        servers = load_config()["mcp_servers"]
+        assert servers["beta"]["enabled"] is False
+        assert servers["delta"]["enabled"] is False
 
 
 # ---------------------------------------------------------------------------

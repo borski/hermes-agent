@@ -4236,7 +4236,11 @@ class HermesCLI:
             return "Installing skill..."
         if cmd_lower.startswith("/skills"):
             return "Processing skills command..."
-        if cmd_lower == "/reload-mcp":
+        if cmd_lower.startswith("/mcp enable") or cmd_lower.startswith("/mcp disable"):
+            return "Updating MCP servers..."
+        if cmd_lower in {"/mcp", "/mcp picker"}:
+            return "Opening MCP picker..."
+        if cmd_lower == "/mcp reload" or cmd_lower == "/reload-mcp":
             return "Reloading MCP servers..."
         if cmd_lower == "/reload-skills" or cmd_lower == "/reload_skills":
             return "Reloading skills..."
@@ -8068,6 +8072,8 @@ class HermesCLI:
             from hermes_cli.config import reload_env
             count = reload_env()
             print(f"  Reloaded .env ({count} var(s) updated)")
+        elif canonical == "mcp":
+            self._handle_mcp_command(cmd_original)
         elif canonical == "reload-mcp":
             # Interactive reload: confirm first (unless the user has opted out).
             # The auto-reload path (file watcher) calls _reload_mcp directly
@@ -9722,6 +9728,75 @@ class HermesCLI:
                 print("⚠️  Couldn't persist opt-out — proceeding once.")
 
         return choice
+
+    def _handle_mcp_command(self, cmd_original: str) -> None:
+        """Manage MCP servers from inside an active session."""
+        import copy
+
+        from hermes_cli.config import load_config
+
+        parts = cmd_original.split()
+        action = parts[1].lower() if len(parts) > 1 else "picker"
+
+        if action in {"list", "ls"}:
+            from hermes_cli.mcp_config import cmd_mcp_list
+
+            cmd_mcp_list()
+            print("  Usage: /mcp [picker]")
+            print("         /mcp enable <name> [name ...]")
+            print("         /mcp disable <name> [name ...]")
+            print("         /mcp reload")
+            return
+
+        if action == "reload":
+            with self._busy_command(self._slow_command_status(cmd_original)):
+                self._reload_mcp()
+            return
+
+        if action in {"picker", "manage"}:
+            before = copy.deepcopy((load_config().get("mcp_servers") or {}))
+            with self._busy_command(self._slow_command_status(cmd_original)):
+                from hermes_cli.mcp_picker import run_picker
+
+                run_picker()
+            after = load_config().get("mcp_servers") or {}
+            if after != before:
+                print("  Reloading MCP servers for this session...")
+                with self._busy_command("Reloading MCP servers..."):
+                    self._reload_mcp()
+            else:
+                print("  MCP config unchanged.")
+            return
+
+        if action not in {"enable", "disable"}:
+            print(f"  Unknown MCP action: {action}")
+            print("  Usage: /mcp [list|enable|disable|reload|picker] [name...]")
+            return
+
+        names = parts[2:]
+        if not names:
+            print(f"  Usage: /mcp {action} <name> [name ...]")
+            return
+
+        from hermes_cli.mcp_config import (
+            _print_mcp_toggle_result,
+            set_mcp_servers_enabled,
+        )
+
+        enabled = action == "enable"
+        changed, unchanged, missing = set_mcp_servers_enabled(names, enabled)
+        _print_mcp_toggle_result(
+            changed=changed,
+            unchanged=unchanged,
+            missing=missing,
+            enabled=enabled,
+            reload_hint=False,
+        )
+
+        if changed:
+            print("  Reloading MCP servers for this session...")
+            with self._busy_command(self._slow_command_status(cmd_original)):
+                self._reload_mcp()
 
     def _confirm_and_reload_mcp(self, cmd_original: str = "") -> None:
         """Interactive /reload-mcp — confirm with the user, then reload.

@@ -104,6 +104,79 @@ def _remove_mcp_server(name: str) -> bool:
     return True
 
 
+def set_mcp_servers_enabled(names: List[str], enabled: bool) -> Tuple[List[str], List[str], List[str]]:
+    """Toggle one or more configured MCP servers.
+
+    Returns ``(changed, unchanged, missing)`` in the same order as ``names``.
+    A server without an explicit ``enabled`` key is treated as enabled, which
+    matches the runtime loader.
+    """
+    config = load_config()
+    servers = config.get("mcp_servers")
+    if not servers or not isinstance(servers, dict):
+        return [], [], list(names)
+
+    changed: List[str] = []
+    unchanged: List[str] = []
+    missing: List[str] = []
+
+    for name in names:
+        server = servers.get(name)
+        if not isinstance(server, dict):
+            missing.append(name)
+            continue
+        current = server.get("enabled", True)
+        if isinstance(current, str):
+            current = current.lower() in {"true", "1", "yes", "on"}
+        if bool(current) == enabled:
+            unchanged.append(name)
+            continue
+        server["enabled"] = enabled
+        changed.append(name)
+
+    if changed:
+        config["mcp_servers"] = servers
+        save_config(config)
+
+    return changed, unchanged, missing
+
+
+def _print_mcp_toggle_result(
+    *,
+    changed: List[str],
+    unchanged: List[str],
+    missing: List[str],
+    enabled: bool,
+    reload_hint: bool = True,
+) -> None:
+    action_label = "Enabled" if enabled else "Disabled"
+    already = "already enabled" if enabled else "already disabled"
+
+    for name in changed:
+        _success(f"{action_label} '{name}'")
+    for name in unchanged:
+        _info(f"'{name}' was {already}.")
+    for name in missing:
+        _error(f"Server '{name}' not found in config.")
+
+    if changed and reload_hint:
+        _info("Start a new session, or run /reload-mcp in an active session, for changes to take effect.")
+
+
+def cmd_mcp_enable(args):
+    """Enable one or more configured MCP servers."""
+    names = list(getattr(args, "names", []) or [])
+    changed, unchanged, missing = set_mcp_servers_enabled(names, True)
+    _print_mcp_toggle_result(changed=changed, unchanged=unchanged, missing=missing, enabled=True)
+
+
+def cmd_mcp_disable(args):
+    """Disable one or more configured MCP servers."""
+    names = list(getattr(args, "names", []) or [])
+    changed, unchanged, missing = set_mcp_servers_enabled(names, False)
+    _print_mcp_toggle_result(changed=changed, unchanged=unchanged, missing=missing, enabled=False)
+
+
 def _env_key_for_server(name: str) -> str:
     """Convert server name to an env-var key like ``MCP_MYSERVER_API_KEY``."""
     return f"MCP_{name.upper().replace('-', '_')}_API_KEY"
@@ -771,6 +844,8 @@ def mcp_command(args):
         "add": cmd_mcp_add,
         "remove": cmd_mcp_remove,
         "rm": cmd_mcp_remove,
+        "enable": cmd_mcp_enable,
+        "disable": cmd_mcp_disable,
         "list": cmd_mcp_list,
         "ls": cmd_mcp_list,
         "test": cmd_mcp_test,

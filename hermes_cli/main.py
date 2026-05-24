@@ -12744,6 +12744,12 @@ Examples:
     mcp_rm_p = mcp_sub.add_parser("remove", aliases=["rm"], help="Remove an MCP server")
     mcp_rm_p.add_argument("name", help="Server name to remove")
 
+    mcp_enable_p = mcp_sub.add_parser("enable", help="Enable one or more MCP servers")
+    mcp_enable_p.add_argument("names", nargs="+", help="Server name(s) to enable")
+
+    mcp_disable_p = mcp_sub.add_parser("disable", help="Disable one or more MCP servers")
+    mcp_disable_p.add_argument("names", nargs="+", help="Server name(s) to disable")
+
     mcp_sub.add_parser("list", aliases=["ls"], help="List configured MCP servers")
 
     mcp_test_p = mcp_sub.add_parser("test", help="Test MCP server connection")

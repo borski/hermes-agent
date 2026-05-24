@@ -111,20 +111,15 @@ def _format_row(row: _Row) -> str:
 
 
 def _enable_disable(name: str, *, enable: bool) -> None:
-    cfg = load_config()
-    servers = cfg.get("mcp_servers") or {}
-    server = servers.get(name)
-    if not server:
-        print(color(f"  '{name}' is not installed.", Colors.RED))
-        return
-    server["enabled"] = enable
-    cfg["mcp_servers"] = servers
-    save_config(cfg)
-    print(color(
-        f"  ✓ '{name}' {'enabled' if enable else 'disabled'}. "
-        "Start a new Hermes session for changes to take effect.",
-        Colors.GREEN,
-    ))
+    from hermes_cli.mcp_config import _print_mcp_toggle_result, set_mcp_servers_enabled
+
+    changed, unchanged, missing = set_mcp_servers_enabled([name], enable)
+    _print_mcp_toggle_result(
+        changed=changed,
+        unchanged=unchanged,
+        missing=missing,
+        enabled=enable,
+    )
 
 
 def _configure_tools(name: str) -> None:
