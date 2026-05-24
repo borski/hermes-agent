@@ -8,6 +8,7 @@ import { $uiSessionId, $uiTheme } from '../app/uiStore.js'
 
 import { FloatBox } from './appChrome.js'
 import { MaskedPrompt } from './maskedPrompt.js'
+import { McpPicker } from './mcpPicker.js'
 import { ModelPicker } from './modelPicker.js'
 import { OverlayHint } from './overlayControls.js'
 import { ApprovalPrompt, ClarifyPrompt, ConfirmPrompt } from './prompts.js'
@@ -95,16 +96,17 @@ export function FloatingOverlays({
   cols,
   compIdx,
   completions,
+  onMcpClose,
   onModelSelect,
   onPickerSelect,
   pagerPageSize
-}: Pick<AppOverlaysProps, 'cols' | 'compIdx' | 'completions' | 'onModelSelect' | 'onPickerSelect' | 'pagerPageSize'>) {
+}: Pick<AppOverlaysProps, 'cols' | 'compIdx' | 'completions' | 'onMcpClose' | 'onModelSelect' | 'onPickerSelect' | 'pagerPageSize'>) {
   const { gw } = useGateway()
   const overlay = useStore($overlayState)
   const sid = useStore($uiSessionId)
   const theme = useStore($uiTheme)
 
-  const hasAny = overlay.modelPicker || overlay.pager || overlay.picker || overlay.skillsHub || completions.length
+  const hasAny = overlay.mcpPicker || overlay.modelPicker || overlay.pager || overlay.picker || overlay.skillsHub || completions.length
 
   if (!hasAny) {
     return null
@@ -137,6 +139,21 @@ export function FloatingOverlays({
             onCancel={() => patchOverlayState({ modelPicker: false })}
             onSelect={onModelSelect}
             sessionId={sid}
+            t={theme}
+          />
+        </FloatBox>
+      )}
+
+      {overlay.mcpPicker && (
+        <FloatBox color={theme.color.border}>
+          <McpPicker
+            gw={gw}
+            onClose={() => {
+              patchOverlayState({ mcpPicker: false })
+              onMcpClose()
+            }}
+            sessionId={sid}
+            sys={line => onMcpClose(line)}
             t={theme}
           />
         </FloatBox>

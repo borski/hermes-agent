@@ -8,6 +8,7 @@ const buildOverlayState = (): OverlayState => ({
   approval: null,
   clarify: null,
   confirm: null,
+  mcpPicker: false,
   modelPicker: false,
   pager: null,
   picker: false,
@@ -20,8 +21,20 @@ export const $overlayState = atom<OverlayState>(buildOverlayState())
 
 export const $isBlocked = computed(
   $overlayState,
-  ({ agents, approval, clarify, confirm, modelPicker, pager, picker, secret, skillsHub, sudo }) =>
-    Boolean(agents || approval || clarify || confirm || modelPicker || pager || picker || secret || skillsHub || sudo)
+  ({ agents, approval, clarify, confirm, mcpPicker, modelPicker, pager, picker, secret, skillsHub, sudo }) =>
+    Boolean(
+      agents ||
+        approval ||
+        clarify ||
+        confirm ||
+        mcpPicker ||
+        modelPicker ||
+        pager ||
+        picker ||
+        secret ||
+        skillsHub ||
+        sudo
+    )
 )
 
 export const getOverlayState = () => $overlayState.get()
@@ -35,16 +48,18 @@ export const resetOverlayState = () => $overlayState.set(buildOverlayState())
 /**
  * Soft reset: drop FLOW-scoped overlays (approval / clarify / confirm / sudo
  * / secret / pager) but PRESERVE user-toggled ones — agents dashboard, model
- * picker, skills hub, session picker.  Those are opened deliberately and
- * shouldn't vanish when a turn ends.  Called from turnController.idle() on
- * every turn completion / interrupt; the old "reset everything" behaviour
- * silently closed /agents the moment delegation finished.
+ * picker, skills hub, session picker, MCP picker.  Those are opened
+ * deliberately and shouldn't vanish when a turn ends.  Called from
+ * turnController.idle() on every turn completion / interrupt; the old
+ * "reset everything" behaviour silently closed /agents the moment delegation
+ * finished.
  */
 export const resetFlowOverlays = () =>
   $overlayState.set({
     ...buildOverlayState(),
     agents: $overlayState.get().agents,
     agentsInitialHistoryIndex: $overlayState.get().agentsInitialHistoryIndex,
+    mcpPicker: $overlayState.get().mcpPicker,
     modelPicker: $overlayState.get().modelPicker,
     picker: $overlayState.get().picker,
     skillsHub: $overlayState.get().skillsHub

@@ -75,6 +75,7 @@ export interface OverlayState {
   approval: ApprovalReq | null
   clarify: ClarifyReq | null
   confirm: ConfirmReq | null
+  mcpPicker: boolean
   modelPicker: boolean
   pager: null | PagerState
   picker: boolean
@@ -305,6 +306,7 @@ export interface AppLayoutActions {
   answerSecret: (value: string) => void
   answerSudo: (pw: string) => void
   clearSelection: () => void
+  onMcpClose: (line?: string) => void
   onModelSelect: (value: string) => void
   resumeById: (id: string) => void
   setStickyPrompt: (value: string) => void
@@ -363,6 +365,7 @@ export interface AppOverlaysProps {
   completions: CompletionItem[]
   onApprovalChoice: (choice: string) => void
   onClarifyAnswer: (value: string) => void
+  onMcpClose: (line?: string) => void
   onModelSelect: (value: string) => void
   onPickerSelect: (sessionId: string) => void
   onSecretSubmit: (value: string) => void

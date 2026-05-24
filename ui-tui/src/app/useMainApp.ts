@@ -727,6 +727,15 @@ export function useMainApp(gw: GatewayClient) {
     slashRef.current(`/model ${value}`)
   }, [])
 
+  const onMcpClose = useCallback(
+    (line?: string) => {
+      if (line && line.trim()) {
+        sys(line)
+      }
+    },
+    [sys]
+  )
+
   const hasReasoning = useTurnSelector(state => Boolean(state.reasoning.trim()))
 
   // Per-section overrides win over the global mode — when every section is
@@ -782,11 +791,12 @@ export function useMainApp(gw: GatewayClient) {
       answerSecret,
       answerSudo,
       clearSelection,
+      onMcpClose,
       onModelSelect,
       resumeById: session.resumeById,
       setStickyPrompt
     }),
-    [answerApproval, answerClarify, answerSecret, answerSudo, clearSelection, onModelSelect, session.resumeById]
+    [answerApproval, answerClarify, answerSecret, answerSudo, clearSelection, onMcpClose, onModelSelect, session.resumeById]
   )
 
   const appComposer = useMemo(

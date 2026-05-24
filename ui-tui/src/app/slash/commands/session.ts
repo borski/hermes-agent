@@ -106,6 +106,14 @@ export const sessionCommands: SlashCommand[] = [
   },
 
   {
+    help: 'manage MCP servers (picker with SPACE toggle / ENTER apply)',
+    name: 'mcp',
+    run: (_arg, _ctx) => {
+      patchOverlayState({ mcpPicker: true })
+    }
+  },
+
+  {
     help: 'attach an image',
     name: 'image',
     run: (arg, ctx) => {

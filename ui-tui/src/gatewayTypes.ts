@@ -337,6 +337,24 @@ export interface ReloadMcpResponse {
   message?: string
 }
 
+export interface McpServerRow {
+  enabled: boolean
+  kind: string
+  name: string
+  summary?: string
+}
+
+export interface McpListResponse {
+  servers?: McpServerRow[]
+}
+
+export interface McpApplyResponse {
+  changed?: string[]
+  missing?: string[]
+  reloaded?: boolean
+  unchanged?: string[]
+}
+
 export interface ReloadEnvResponse {
   updated?: number
 }

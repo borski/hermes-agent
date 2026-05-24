@@ -5598,6 +5598,117 @@ def _(rid, params: dict) -> dict:
         return _err(rid, 5035, str(e))
 
 
+# ── Methods: mcp.list / mcp.apply ────────────────────────────────────
+
+
+@method("mcp.list")
+def _(rid, params: dict) -> dict:
+    """Return configured MCP servers for the TUI picker.
+
+    Each entry is ``{"name", "kind", "enabled", "summary"}`` where ``kind``
+    is ``"remote"`` for HTTP/SSE servers and ``"stdio"`` for local
+    subprocess servers, and ``summary`` is a short, redaction-safe
+    descriptor (URL host or command name).
+    """
+    try:
+        from hermes_cli.config import load_config
+        from hermes_cli.mcp_config import _get_mcp_servers
+
+        servers = _get_mcp_servers(load_config())
+        rows: list[dict] = []
+        for name in sorted(servers.keys()):
+            cfg = servers.get(name) or {}
+            enabled = bool(cfg.get("enabled", True))
+            url = cfg.get("url") or ""
+            command = cfg.get("command") or ""
+            if url:
+                kind = "remote"
+                summary = url
+            elif command:
+                kind = "stdio"
+                summary = command
+            else:
+                kind = "?"
+                summary = ""
+            rows.append(
+                {
+                    "name": name,
+                    "kind": kind,
+                    "enabled": enabled,
+                    "summary": summary,
+                }
+            )
+        return _ok(rid, {"servers": rows})
+    except Exception as e:
+        return _err(rid, 5036, str(e))
+
+
+@method("mcp.apply")
+def _(rid, params: dict) -> dict:
+    """Apply MCP enable/disable changes from the TUI picker.
+
+    Params:
+        enable: list of server names to enable
+        disable: list of server names to disable
+        session_id: active TUI session (so the live agent can refresh tools)
+
+    Always reloads MCP tools for the live agent when any change is made,
+    so the session's tool schema matches the new config immediately.
+    """
+    try:
+        from hermes_cli.mcp_config import _set_mcp_server_enabled
+
+        enable_names = list(params.get("enable") or [])
+        disable_names = list(params.get("disable") or [])
+        changed: list[str] = []
+        missing: list[str] = []
+        unchanged: list[str] = []
+
+        if enable_names:
+            ch, un, mi = _set_mcp_server_enabled(enable_names, True)
+            changed.extend(ch)
+            unchanged.extend(un)
+            missing.extend(mi)
+        if disable_names:
+            ch, un, mi = _set_mcp_server_enabled(disable_names, False)
+            changed.extend(ch)
+            unchanged.extend(un)
+            missing.extend(mi)
+
+        reloaded = False
+        if changed:
+            from tools.mcp_tool import discover_mcp_tools, shutdown_mcp_servers
+
+            shutdown_mcp_servers()
+            discover_mcp_tools()
+            session = _sessions.get(params.get("session_id", ""))
+            if session:
+                agent = session.get("agent")
+                if agent is not None and hasattr(agent, "refresh_tools"):
+                    try:
+                        agent.refresh_tools()
+                    except Exception:
+                        pass
+                _emit(
+                    "session.info",
+                    params.get("session_id", ""),
+                    _session_info(agent),
+                )
+            reloaded = True
+
+        return _ok(
+            rid,
+            {
+                "changed": changed,
+                "unchanged": unchanged,
+                "missing": missing,
+                "reloaded": reloaded,
+            },
+        )
+    except Exception as e:
+        return _err(rid, 5037, str(e))
+
+
 # ── Methods: slash.exec ──────────────────────────────────────────────
 
 
