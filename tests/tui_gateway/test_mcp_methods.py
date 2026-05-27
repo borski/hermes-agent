@@ -1,10 +1,35 @@
-"""Tests for the tui_gateway mcp.list and mcp.apply methods."""
+"""Tests for the tui_gateway mcp.list and mcp.apply methods.
+
+Note on patching: other tests in the suite may reload modules like
+``cli`` or ``tui_gateway.server`` via ``importlib.reload``. When that
+happens, the registered method function objects in ``_methods`` (this
+module's ``server._methods`` dict, captured at module-import time) keep
+their old ``__globals__`` reference, while ``patch("tui_gateway.server.foo")``
+patches whatever ``sys.modules["tui_gateway.server"]`` currently is —
+which may be the new module after reload. The two miss each other and
+the patch silently no-ops.
+
+Resolution: resolve the registered handler function and its real
+``__globals__`` namespace at call time, and patch attributes directly
+on that namespace via ``monkeypatch.setattr`` so the patched name lands
+where the handler's name-lookup will actually find it.
+"""
 
 from unittest.mock import patch
 
 import pytest
 
 from tui_gateway import server
+
+
+def _handler_globals(name: str) -> dict:
+    """Return the globals dict the registered ``_methods[name]`` handler sees.
+
+    Robust to ``importlib.reload(tui_gateway.server)`` having swapped the
+    module object out from under us mid-suite.
+    """
+    fn = server._methods[name]
+    return fn.__globals__
 
 
 @pytest.fixture(autouse=True)
@@ -73,6 +98,7 @@ def test_mcp_apply_applies_enable_then_disable_then_reloads_session(monkeypatch)
         return list(names), [], []
 
     refresh_called = {"count": 0}
+    emit_calls = []
 
     class _Agent:
         enabled_toolsets = None
@@ -88,13 +114,20 @@ def test_mcp_apply_applies_enable_then_disable_then_reloads_session(monkeypatch)
         refresh_called["count"] += 1
         return 0
 
+    def _fake_emit(*args, **kwargs):
+        emit_calls.append((args, kwargs))
+
+    # Patch into the handler's actual globals (robust to importlib.reload of
+    # tui_gateway.server elsewhere in the test suite).  See module docstring.
+    handler_globals = _handler_globals("mcp.apply")
+    monkeypatch.setitem(handler_globals, "_refresh_agent_tool_list", _fake_refresh)
+    monkeypatch.setitem(handler_globals, "_emit", _fake_emit)
+    monkeypatch.setitem(handler_globals, "_session_info", lambda a: {})
+
     try:
         with patch("hermes_cli.mcp_config.set_mcp_servers_enabled", side_effect=fake_set), \
              patch("tools.mcp_tool.shutdown_mcp_servers") as shutdown_mock, \
-             patch("tools.mcp_tool.discover_mcp_tools") as discover_mock, \
-             patch("tui_gateway.server._refresh_agent_tool_list", side_effect=_fake_refresh), \
-             patch("tui_gateway.server._emit"), \
-             patch("tui_gateway.server._session_info", return_value={}):
+             patch("tools.mcp_tool.discover_mcp_tools") as discover_mock:
             resp = server._methods["mcp.apply"](
                 7,
                 {
